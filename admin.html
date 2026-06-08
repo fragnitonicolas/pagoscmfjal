@@ -171,21 +171,42 @@
 
     <!-- ══ PESTAÑA: PADRÓN ══ -->
     <div id="tab-padron" class="hidden">
+      <!-- Cargar nuevo padrón -->
       <div class="card">
-        <div class="card-title">Actualizar Padrón</div>
+        <div class="card-title">Cargar nuevo padrón</div>
         <div id="msg-import"></div>
         <div class="form-group">
           <label for="inp-csv">Archivo CSV o Excel</label>
           <input type="file" id="inp-csv" accept=".csv,.xlsx,.xls" />
         </div>
         <p style="font-size:.75rem;color:var(--mid);margin-bottom:20px;line-height:1.7;">
-          El sistema detecta columnas automáticamente (nombre, apellido, cuota). Vencimiento fijo: día 10.<br/>
-          Si un afiliado ya existe, <strong>solo se actualiza la cuota</strong> — su historial de pagos no se modifica.<br/>
-          Los nuevos afiliados se agregan al padrón sin afectar los registros existentes.
+          Detecta columnas automáticamente. Vencimiento fijo: día 10.<br/>
+          Afiliados existentes → solo se actualiza la cuota y se reasignan al nuevo padrón. Historial de pagos intacto.
         </p>
         <button class="btn btn-primary btn-sm" id="btn-importar">Procesar archivo</button>
       </div>
 
+      <!-- Padrones cargados -->
+      <div class="card">
+        <div class="card-title">Padrones cargados</div>
+        <div id="msg-padrones-lista"></div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Fecha de carga</th>
+                <th>Afiliados</th>
+                <th>Afiliados activos en este padrón</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="tbody-padrones"></tbody>
+          </table>
+        </div>
+        <div id="sin-padrones" class="hidden" style="text-align:center;padding:28px;color:var(--mid);font-size:.88rem;">No hay padrones cargados.</div>
+      </div>
+
+      <!-- Afiliados activos -->
       <div class="card">
         <div class="card-title">Afiliados activos</div>
         <div id="msg-padron-lista"></div>
@@ -203,7 +224,7 @@
                 <th>Apellido</th>
                 <th>Nombre</th>
                 <th>Cuota mensual</th>
-                <th>Vencimiento</th>
+                <th>Padrón</th>
                 <th></th>
               </tr>
             </thead>

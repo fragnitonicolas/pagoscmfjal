@@ -302,15 +302,71 @@ function exportarMorosos() {
 }
 
 // ─── PADRÓN ───────────────────────────────────────────────────
-let padronData = [];
+let padronData   = [];
+let padronesData = [];
 
 document.getElementById('btn-filtrar-padron').addEventListener('click', renderPadron);
 document.getElementById('fil-padron-buscar').addEventListener('keydown', e => { if (e.key === 'Enter') renderPadron(); });
 
 async function cargarPadron() {
-  const { data, error } = await supabase.from('afiliados').select('*').eq('activo', true).order('apellido');
-  if (error) { showMsg('msg-padron-lista', 'Error cargando padrón.', 'error'); return; }
-  padronData = data || [];
+  const [{ data: afiliados }, { data: padrones }] = await Promise.all([
+    supabase.from('afiliados').select('*, padron:padron_id(id,fecha_carga)').eq('activo', true).order('apellido'),
+    supabase.from('padrones').select('*').order('fecha_carga', { ascending: false })
+  ]);
+  padronData   = afiliados || [];
+  padronesData = padrones  || [];
+  renderPadronesLista();
+  renderPadron();
+}
+
+function formatFecha(iso) {
+  const d = new Date(iso);
+  return d.toLocaleDateString('es-AR', { day:'2-digit', month:'long', year:'numeric', hour:'2-digit', minute:'2-digit' });
+}
+
+function renderPadronesLista() {
+  const tbody = document.getElementById('tbody-padrones');
+  tbody.innerHTML = '';
+  document.getElementById('sin-padrones').classList.toggle('hidden', padronesData.length > 0);
+
+  padronesData.forEach(p => {
+    const activos = padronData.filter(a => a.padron_id === p.id).length;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${esc(formatFecha(p.fecha_carga))}</td>
+      <td>${p.cantidad}</td>
+      <td>${activos}</td>
+      <td><button class="btn btn-reject btn-sm btn-eliminar-padron" data-id="${p.id}" data-fecha="${esc(formatFecha(p.fecha_carga))}">Eliminar</button></td>`;
+    tbody.appendChild(tr);
+  });
+
+  tbody.querySelectorAll('.btn-eliminar-padron').forEach(b =>
+    b.addEventListener('click', () => eliminarPadron(b.dataset.id, b.dataset.fecha)));
+}
+
+async function eliminarPadron(padronId, fechaLabel) {
+  const activos = padronData.filter(a => a.padron_id === padronId).length;
+  if (!confirm(
+    `¿Eliminar el padrón cargado el ${fechaLabel}?\n\n` +
+    `Esto dará de baja a los ${activos} afiliados activos de ese padrón.\n` +
+    `El historial de pagos de cada uno se conserva.`
+  )) return;
+
+  // Dar de baja afiliados de este padrón
+  const { error } = await supabase.from('afiliados')
+    .update({ activo: false })
+    .eq('padron_id', padronId);
+  if (error) { showMsg('msg-padrones-lista', 'Error: ' + error.message, 'error'); return; }
+
+  // Eliminar el registro de padrón
+  await supabase.from('padrones').delete().eq('id', padronId);
+
+  showMsg('msg-padrones-lista', `Padrón eliminado. ${activos} afiliados dados de baja.`, 'success');
+  tabs.morosos = null;
+  // Recargar
+  padronData   = padronData.filter(a => a.padron_id !== padronId);
+  padronesData = padronesData.filter(p => p.id !== padronId);
+  renderPadronesLista();
   renderPadron();
 }
 
@@ -325,12 +381,15 @@ function renderPadron() {
   document.getElementById('sin-padron').classList.toggle('hidden', lista.length > 0);
 
   lista.forEach(a => {
+    const fechaPadron = a.padron?.fecha_carga
+      ? new Date(a.padron.fecha_carga).toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'numeric' })
+      : '—';
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${esc(a.apellido)}</td>
       <td>${esc(a.nombre)}</td>
       <td>$${Number(a.cuota).toLocaleString('es-AR')}</td>
-      <td>Día ${DIA_VENC}</td>
+      <td style="font-size:.8rem;color:var(--mid);">${fechaPadron}</td>
       <td><button class="btn btn-secondary btn-sm btn-dar-baja" data-id="${a.id}">Dar de baja</button></td>`;
     tbody.appendChild(tr);
   });
@@ -344,6 +403,7 @@ async function darDeBaja(id) {
   const { error } = await supabase.from('afiliados').update({ activo: false }).eq('id', id);
   if (error) { showMsg('msg-padron-lista', 'Error: ' + error.message, 'error'); return; }
   padronData = padronData.filter(a => a.id !== id);
+  renderPadronesLista();
   renderPadron();
   tabs.morosos = null;
 }
@@ -486,17 +546,23 @@ function mostrarPreviewImport(afiliados, mapping) {
 async function confirmarImport() {
   if (!afiliadosPreview.length) return;
 
-  // Upsert: si (nombre, apellido) ya existe → actualiza cuota; si no → inserta
-  const { error } = await supabase.from('afiliados')
-    .upsert(afiliadosPreview, { onConflict: 'nombre,apellido', ignoreDuplicates: false });
+  // 1. Crear registro de padrón
+  const { data: padronRec, error: e1 } = await supabase
+    .from('padrones')
+    .insert({ cantidad: afiliadosPreview.length })
+    .select()
+    .single();
+  if (e1) { showMsg('msg-import','Error creando registro de padrón: '+e1.message,'error'); return; }
 
-  if (error) { showMsg('msg-import','Error: '+error.message,'error'); return; }
+  // 2. Upsert afiliados con padron_id del nuevo padrón
+  const conPadron = afiliadosPreview.map(a => ({ ...a, padron_id: padronRec.id }));
+  const { error: e2 } = await supabase.from('afiliados')
+    .upsert(conPadron, { onConflict: 'nombre,apellido', ignoreDuplicates: false });
+  if (e2) { showMsg('msg-import','Error: '+e2.message,'error'); return; }
 
-  showMsg('msg-import',`Padrón actualizado — ${afiliadosPreview.length} registros procesados.`,'success');
+  showMsg('msg-import',`Padrón cargado — ${afiliadosPreview.length} registros procesados.`,'success');
   afiliadosPreview = [];
-  // Invalidar cachés
   tabs.morosos = null;
-  padronData   = [];
   tabs.padron  = null;
   cargarPadron();
 }
