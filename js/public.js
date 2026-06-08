@@ -1,4 +1,6 @@
-import { supabase, MESES, mesLabel, primerDiaMes } from './supabase.js';
+import { supabase, MESES, primerDiaMes } from './supabase.js';
+
+const DIA_VENC = 10;
 
 let afiliadoSel = null;
 
@@ -40,7 +42,7 @@ function seleccionarAfiliado(a) {
 
   document.getElementById('afiliado-seleccionado').classList.remove('hidden');
   document.getElementById('afiliado-info').textContent =
-    `Afiliado: ${a.apellido}, ${a.nombre} — Cuota: $${Number(a.cuota).toLocaleString('es-AR')} — Vencimiento: día ${a.dia_vencimiento}`;
+    `Afiliado: ${a.apellido}, ${a.nombre} — Cuota: $${Number(a.cuota).toLocaleString('es-AR')} — Vencimiento: día ${DIA_VENC}`;
 
   document.getElementById('step-pago').classList.remove('hidden');
   poblarMeses();
@@ -84,7 +86,7 @@ async function cargarEstado() {
   } else {
     const [y, m] = mes.split('-').map(Number);
     const esMesActual = (y === hoy.getFullYear() && m === hoy.getMonth() + 1);
-    if (!esMesActual || hoy.getDate() > afiliadoSel.dia_vencimiento) estado = 'vencido';
+    if (!esMesActual || hoy.getDate() > DIA_VENC) estado = 'vencido';
   }
 
   const el = document.getElementById('estado-actual');

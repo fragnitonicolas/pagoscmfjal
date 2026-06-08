@@ -1,9 +1,9 @@
 import { supabase, MESES, primerDiaMes } from './supabase.js';
 
-// ── Contraseña admin (cambiar aquí para modificarla) ──────────
-const ADMIN_PASS = 'cmfjal2024';
+const ADMIN_PASS  = 'cmfjal2024';
+const DIA_VENC    = 10;   // vencimiento fijo día 10
 
-// ── Login ─────────────────────────────────────────────────────
+// ─── LOGIN ────────────────────────────────────────────────────
 const loginPage = document.getElementById('login-page');
 const adminPage = document.getElementById('admin-page');
 
@@ -15,8 +15,7 @@ document.getElementById('btn-login').addEventListener('click', doLogin);
 document.getElementById('inp-pass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
 
 function doLogin() {
-  const val = document.getElementById('inp-pass').value;
-  if (val === ADMIN_PASS) {
+  if (document.getElementById('inp-pass').value === ADMIN_PASS) {
     sessionStorage.setItem('admin_ok', '1');
     showAdmin();
   } else {
@@ -28,7 +27,7 @@ function showAdmin() {
   loginPage.classList.add('hidden');
   adminPage.classList.remove('hidden');
   poblarFiltroMes();
-  cargarTabla();
+  showTab('pagos');
 }
 
 document.getElementById('btn-logout').addEventListener('click', () => {
@@ -36,25 +35,40 @@ document.getElementById('btn-logout').addEventListener('click', () => {
   location.reload();
 });
 
-// ── Selector mes filtro ───────────────────────────────────────
+// ─── TABS ─────────────────────────────────────────────────────
+const tabs = { pagos: null, morosos: null, padron: null };
+
+function showTab(name) {
+  ['pagos','morosos','padron'].forEach(t => {
+    document.getElementById(`tab-${t}`).classList.toggle('hidden', t !== name);
+    document.getElementById(`tab-${t}-link`).classList.toggle('active', t !== name ? false : true);
+  });
+  if (name === 'pagos'   && !tabs.pagos)   { tabs.pagos   = true; cargarTabla(); }
+  if (name === 'morosos' && !tabs.morosos) { tabs.morosos = true; cargarMorosos(); }
+  if (name === 'padron'  && !tabs.padron)  { tabs.padron  = true; cargarPadron(); }
+}
+
+document.getElementById('tab-pagos-link').addEventListener('click',   e => { e.preventDefault(); showTab('pagos');   });
+document.getElementById('tab-morosos-link').addEventListener('click', e => { e.preventDefault(); showTab('morosos'); });
+document.getElementById('tab-padron-link').addEventListener('click',  e => { e.preventDefault(); showTab('padron');  });
+
+// ─── SELECTOR MES ─────────────────────────────────────────────
 function poblarFiltroMes() {
   const sel = document.getElementById('fil-mes');
   sel.innerHTML = '';
   const hoy = new Date();
   for (let i = 0; i < 12; i++) {
-    let m = hoy.getMonth() - i;
-    let y = hoy.getFullYear();
+    let m = hoy.getMonth() - i, y = hoy.getFullYear();
     if (m < 0) { m += 12; y--; }
-    const val = primerDiaMes(y, m);
     const opt = document.createElement('option');
-    opt.value = val;
+    opt.value = primerDiaMes(y, m);
     opt.textContent = MESES[m] + ' ' + y;
     if (i === 0) opt.selected = true;
     sel.appendChild(opt);
   }
 }
 
-// ── Cargar tabla ──────────────────────────────────────────────
+// ─── PAGOS DEL MES ────────────────────────────────────────────
 let todosLosAfiliados = [];
 let todosPagos = [];
 
@@ -63,60 +77,52 @@ document.getElementById('fil-mes').addEventListener('change', cargarTabla);
 
 async function cargarTabla() {
   document.getElementById('msg-tabla').innerHTML = '';
-  const mes = document.getElementById('fil-mes').value;
+  const mes          = document.getElementById('fil-mes').value;
   const filtroEstado = document.getElementById('fil-estado').value;
   const filtroBuscar = document.getElementById('fil-buscar').value.trim().toLowerCase();
 
-  const { data: afiliados, error: e1 } = await supabase
-    .from('afiliados')
-    .select('*')
-    .eq('activo', true)
-    .order('apellido');
+  const [{ data: afiliados, error: e1 }, { data: pagos, error: e2 }] = await Promise.all([
+    supabase.from('afiliados').select('*').eq('activo', true).order('apellido'),
+    supabase.from('pagos').select('*').eq('mes', mes)
+  ]);
 
-  if (e1) { showMsg('msg-tabla', 'Error cargando afiliados: ' + e1.message, 'error'); return; }
-
-  const { data: pagos, error: e2 } = await supabase
-    .from('pagos')
-    .select('*')
-    .eq('mes', mes);
-
-  if (e2) { showMsg('msg-tabla', 'Error cargando pagos: ' + e2.message, 'error'); return; }
+  if (e1 || e2) { showMsg('msg-tabla', 'Error cargando datos.', 'error'); return; }
 
   todosLosAfiliados = afiliados || [];
-  todosPagos = pagos || [];
+  todosPagos        = pagos || [];
 
-  const hoy = new Date();
-  const [mesY, mesM] = mes.split('-').map(Number);
+  const filas = buildFilas(todosLosAfiliados, todosPagos, mes);
 
-  const filas = todosLosAfiliados.map(a => {
-    const pago = todosPagos.find(p => p.afiliado_id === a.id);
-    let estado = 'pendiente';
-    if (pago) {
-      estado = pago.estado;
-    } else {
-      const esMesActual = (mesY === hoy.getFullYear() && mesM === hoy.getMonth() + 1);
-      const esMesPasado = mesY < hoy.getFullYear() || (mesY === hoy.getFullYear() && mesM < hoy.getMonth() + 1);
-      if (esMesPasado || (esMesActual && hoy.getDate() > a.dia_vencimiento)) estado = 'vencido';
-    }
-    return { ...a, pago, estado };
-  });
-
-  // Contadores
-  const cnt = { pagado: 0, reportado: 0, pendiente: 0, vencido: 0 };
-  filas.forEach(f => cnt[f.estado] = (cnt[f.estado] || 0) + 1);
-  document.getElementById('cnt-pagado').textContent   = cnt.pagado;
+  const cnt = { pagado:0, reportado:0, pendiente:0, vencido:0 };
+  filas.forEach(f => cnt[f.estado] = (cnt[f.estado]||0) + 1);
+  document.getElementById('cnt-pagado').textContent    = cnt.pagado;
   document.getElementById('cnt-reportado').textContent = cnt.reportado;
   document.getElementById('cnt-pendiente').textContent = cnt.pendiente;
-  document.getElementById('cnt-vencido').textContent  = cnt.vencido;
+  document.getElementById('cnt-vencido').textContent   = cnt.vencido;
 
-  // Filtros
   let filtradas = filas;
   if (filtroEstado) filtradas = filtradas.filter(f => f.estado === filtroEstado);
   if (filtroBuscar) filtradas = filtradas.filter(f =>
-    f.apellido.toLowerCase().includes(filtroBuscar) ||
-    f.nombre.toLowerCase().includes(filtroBuscar));
+    f.apellido.toLowerCase().includes(filtroBuscar) || f.nombre.toLowerCase().includes(filtroBuscar));
 
   renderTabla(filtradas, mes);
+}
+
+function buildFilas(afiliados, pagos, mes) {
+  const hoy = new Date();
+  const [mesY, mesM] = mes.split('-').map(Number);
+  return afiliados.map(a => {
+    const pago   = pagos.find(p => p.afiliado_id === a.id);
+    let estado   = 'pendiente';
+    if (pago) {
+      estado = pago.estado;
+    } else {
+      const esMesActual  = mesY === hoy.getFullYear() && mesM === hoy.getMonth() + 1;
+      const esMesPasado  = mesY < hoy.getFullYear() || (mesY === hoy.getFullYear() && mesM < hoy.getMonth() + 1);
+      if (esMesPasado || (esMesActual && hoy.getDate() > DIA_VENC)) estado = 'vencido';
+    }
+    return { ...a, pago, estado };
+  });
 }
 
 function renderTabla(filas, mes) {
@@ -130,25 +136,16 @@ function renderTabla(filas, mes) {
       <td>${esc(f.apellido)}</td>
       <td>${esc(f.nombre)}</td>
       <td>$${Number(f.cuota).toLocaleString('es-AR')}</td>
-      <td>${f.dia_vencimiento}</td>
-      <td><span class="badge badge-${f.estado}">${f.estado.charAt(0).toUpperCase() + f.estado.slice(1)}</span></td>
-      <td>${f.pago?.referencia ? esc(f.pago.referencia) : '<span style="color:#aaa">—</span>'}</td>
-      <td class="actions-cell"></td>
-    `;
+      <td><span class="badge badge-${f.estado}">${labelEstado(f.estado)}</span></td>
+      <td>${f.pago?.referencia ? esc(f.pago.referencia) : '<span style="color:var(--mid)">—</span>'}</td>
+      <td class="actions-cell"></td>`;
     const cell = tr.querySelector('.actions-cell');
-
-    if (f.pago?.comprobante_url) {
-      const btnV = makeBtn('Ver', 'btn-view btn-sm', () => verComprobante(f.pago.comprobante_url));
-      cell.appendChild(btnV);
-    }
-
+    if (f.pago?.comprobante_url)
+      cell.appendChild(makeBtn('Ver', 'btn-view btn-sm', () => verComprobante(f.pago.comprobante_url)));
     if (f.estado === 'reportado') {
-      const btnC = makeBtn('Confirmar', 'btn-confirm btn-sm', () => confirmarPago(f.pago.id, mes));
-      const btnR = makeBtn('Rechazar', 'btn-reject btn-sm', () => abrirRechazo(f.pago.id, mes));
-      cell.appendChild(btnC);
-      cell.appendChild(btnR);
+      cell.appendChild(makeBtn('Confirmar', 'btn-confirm btn-sm', () => confirmarPago(f.pago.id)));
+      cell.appendChild(makeBtn('Rechazar',  'btn-reject btn-sm',  () => abrirRechazo(f.pago.id)));
     }
-
     tbody.appendChild(tr);
   });
 }
@@ -161,92 +158,212 @@ function makeBtn(label, cls, fn) {
   return b;
 }
 
-// ── Confirmar pago ────────────────────────────────────────────
-async function confirmarPago(pagoId, mes) {
-  const { error } = await supabase
-    .from('pagos')
-    .update({ estado: 'pagado', motivo_rechazo: null })
-    .eq('id', pagoId);
+// ─── CONFIRMAR / RECHAZAR ─────────────────────────────────────
+async function confirmarPago(pagoId) {
+  const { error } = await supabase.from('pagos').update({ estado: 'pagado', motivo_rechazo: null }).eq('id', pagoId);
   if (error) { showMsg('msg-tabla', 'Error: ' + error.message, 'error'); return; }
-  showMsg('msg-tabla', 'Pago confirmado correctamente.', 'success');
+  showMsg('msg-tabla', 'Pago confirmado.', 'success');
+  tabs.morosos = null;   // invalidar caché morosos
   cargarTabla();
 }
 
-// ── Rechazar pago ─────────────────────────────────────────────
 let pagoIdRechazo = null;
-
 function abrirRechazo(pagoId) {
   pagoIdRechazo = pagoId;
   document.getElementById('inp-motivo').value = '';
   document.getElementById('modal-rechazo').classList.remove('hidden');
 }
 
-document.getElementById('btn-cancelar-rechazo').addEventListener('click', () => {
-  document.getElementById('modal-rechazo').classList.add('hidden');
-});
+document.getElementById('btn-cancelar-rechazo').addEventListener('click', () =>
+  document.getElementById('modal-rechazo').classList.add('hidden'));
 
 document.getElementById('btn-confirmar-rechazo').addEventListener('click', async () => {
   const motivo = document.getElementById('inp-motivo').value.trim();
   if (!motivo) { alert('Ingrese el motivo del rechazo.'); return; }
-
-  const { error } = await supabase
-    .from('pagos')
-    .update({ estado: 'pendiente', motivo_rechazo: motivo })
-    .eq('id', pagoIdRechazo);
-
+  const { error } = await supabase.from('pagos')
+    .update({ estado: 'pendiente', motivo_rechazo: motivo }).eq('id', pagoIdRechazo);
   document.getElementById('modal-rechazo').classList.add('hidden');
   if (error) { showMsg('msg-tabla', 'Error: ' + error.message, 'error'); return; }
-  showMsg('msg-tabla', 'Comprobante rechazado. El afiliado deberá volver a reportar el pago.', 'info');
+  showMsg('msg-tabla', 'Comprobante rechazado.', 'info');
+  tabs.morosos = null;
   cargarTabla();
 });
 
-// ── Ver comprobante ───────────────────────────────────────────
+// ─── VER COMPROBANTE ──────────────────────────────────────────
 function verComprobante(url) {
-  const cont = document.getElementById('comprobante-content');
-  const isPdf = url.toLowerCase().includes('.pdf');
-  if (isPdf) {
-    cont.innerHTML = `<a href="${url}" target="_blank" class="btn btn-view btn-sm">Abrir PDF en nueva pestaña</a>`;
-  } else {
-    cont.innerHTML = `<img src="${url}" style="max-width:100%;max-height:420px;border:1px solid #ddd;" />`;
-  }
+  const cont  = document.getElementById('comprobante-content');
+  cont.innerHTML = url.toLowerCase().includes('.pdf')
+    ? `<a href="${url}" target="_blank" class="btn btn-view btn-sm">Abrir PDF en nueva pestaña</a>`
+    : `<img src="${url}" style="max-width:100%;max-height:420px;border:1px solid var(--rule);" />`;
   document.getElementById('modal-comprobante').classList.remove('hidden');
 }
 
-document.getElementById('btn-cerrar-comp').addEventListener('click', () => {
-  document.getElementById('modal-comprobante').classList.add('hidden');
+document.getElementById('btn-cerrar-comp').addEventListener('click', () =>
+  document.getElementById('modal-comprobante').classList.add('hidden'));
+
+// ─── EXPORTAR CSV (pagos del mes) ─────────────────────────────
+document.getElementById('btn-exportar').addEventListener('click', () => {
+  const mes    = document.getElementById('fil-mes').value;
+  const filas  = buildFilas(todosLosAfiliados, todosPagos, mes).map(f => ({
+    Apellido: f.apellido, Nombre: f.nombre, Cuota: f.cuota,
+    Estado: f.estado, Referencia: f.pago?.referencia || '',
+    'Motivo rechazo': f.pago?.motivo_rechazo || ''
+  }));
+  descargarCSV(filas, `pagos_${mes}.csv`);
 });
 
-// ── Parser inteligente de padrón ──────────────────────────────
+// ─── MOROSOS ─────────────────────────────────────────────────
+let morososData = [];
+
+document.getElementById('btn-filtrar-morosos').addEventListener('click',  () => renderMorosos());
+document.getElementById('btn-exportar-morosos').addEventListener('click', exportarMorosos);
+
+async function cargarMorosos() {
+  showMsg('msg-morosos', 'Calculando morosos…', 'info');
+
+  const hoy  = new Date();
+  // Generar los últimos 12 meses completos (no incluir el mes actual si no venció)
+  const mesesPasados = [];
+  for (let i = 1; i <= 12; i++) {
+    let m = hoy.getMonth() - i, y = hoy.getFullYear();
+    if (m < 0) { m += 12; y--; }
+    mesesPasados.push(primerDiaMes(y, m));
+  }
+  // Incluir mes actual si ya venció el día 10
+  if (hoy.getDate() > DIA_VENC) {
+    mesesPasados.unshift(primerDiaMes(hoy.getFullYear(), hoy.getMonth()));
+  }
+
+  const [{ data: afiliados }, { data: pagos }] = await Promise.all([
+    supabase.from('afiliados').select('*').eq('activo', true).order('apellido'),
+    supabase.from('pagos').select('afiliado_id, mes, estado')
+      .in('mes', mesesPasados)
+      .in('estado', ['pagado', 'reportado'])
+  ]);
+
+  if (!afiliados) { showMsg('msg-morosos', 'Error cargando datos.', 'error'); return; }
+
+  const pagosOk = new Set((pagos || []).map(p => `${p.afiliado_id}_${p.mes}`));
+
+  morososData = afiliados.map(a => {
+    const mesesAdeudados = mesesPasados.filter(mes => !pagosOk.has(`${a.id}_${mes}`));
+    return { ...a, mesesAdeudados, deuda: mesesAdeudados.length * Number(a.cuota) };
+  }).filter(a => a.mesesAdeudados.length > 0);
+
+  document.getElementById('msg-morosos').innerHTML = '';
+  renderMorosos();
+}
+
+function renderMorosos() {
+  const buscar   = document.getElementById('mor-buscar').value.trim().toLowerCase();
+  const minMeses = parseInt(document.getElementById('mor-min-meses').value) || 1;
+
+  let filtrados = morososData.filter(a => a.mesesAdeudados.length >= minMeses);
+  if (buscar) filtrados = filtrados.filter(a =>
+    a.apellido.toLowerCase().includes(buscar) || a.nombre.toLowerCase().includes(buscar));
+
+  // Ordenar por mayor deuda primero
+  filtrados.sort((a, b) => b.mesesAdeudados.length - a.mesesAdeudados.length);
+
+  const tbody = document.getElementById('tbody-morosos');
+  tbody.innerHTML = '';
+  document.getElementById('sin-morosos').classList.toggle('hidden', filtrados.length > 0);
+
+  filtrados.forEach(a => {
+    const detalle = a.mesesAdeudados
+      .map(m => { const d = new Date(m + 'T00:00:00'); return MESES[d.getMonth()] + ' ' + d.getFullYear(); })
+      .join(', ');
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${esc(a.apellido)}</td>
+      <td>${esc(a.nombre)}</td>
+      <td>$${Number(a.cuota).toLocaleString('es-AR')}</td>
+      <td><span style="font-weight:500;color:var(--red)">${a.mesesAdeudados.length}</span></td>
+      <td style="font-weight:500;">$${Number(a.deuda).toLocaleString('es-AR')}</td>
+      <td style="font-size:.78rem;color:var(--mid);">${esc(detalle)}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function exportarMorosos() {
+  const filas = morososData
+    .filter(a => a.mesesAdeudados.length >= parseInt(document.getElementById('mor-min-meses').value||1))
+    .map(a => ({
+      Apellido: a.apellido,
+      Nombre:   a.nombre,
+      Cuota:    a.cuota,
+      'Meses adeudados': a.mesesAdeudados.length,
+      'Deuda total':     a.deuda,
+      'Detalle meses':   a.mesesAdeudados
+        .map(m => { const d = new Date(m+'T00:00:00'); return MESES[d.getMonth()]+' '+d.getFullYear(); })
+        .join(' | ')
+    }));
+  descargarCSV(filas, `morosos_${new Date().toISOString().slice(0,10)}.csv`);
+}
+
+// ─── PADRÓN ───────────────────────────────────────────────────
+let padronData = [];
+
+document.getElementById('btn-filtrar-padron').addEventListener('click', renderPadron);
+document.getElementById('fil-padron-buscar').addEventListener('keydown', e => { if (e.key === 'Enter') renderPadron(); });
+
+async function cargarPadron() {
+  const { data, error } = await supabase.from('afiliados').select('*').eq('activo', true).order('apellido');
+  if (error) { showMsg('msg-padron-lista', 'Error cargando padrón.', 'error'); return; }
+  padronData = data || [];
+  renderPadron();
+}
+
+function renderPadron() {
+  const buscar = document.getElementById('fil-padron-buscar').value.trim().toLowerCase();
+  let lista = padronData;
+  if (buscar) lista = lista.filter(a =>
+    a.apellido.toLowerCase().includes(buscar) || a.nombre.toLowerCase().includes(buscar));
+
+  const tbody = document.getElementById('tbody-padron');
+  tbody.innerHTML = '';
+  document.getElementById('sin-padron').classList.toggle('hidden', lista.length > 0);
+
+  lista.forEach(a => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${esc(a.apellido)}</td>
+      <td>${esc(a.nombre)}</td>
+      <td>$${Number(a.cuota).toLocaleString('es-AR')}</td>
+      <td>Día ${DIA_VENC}</td>
+      <td><button class="btn btn-secondary btn-sm btn-dar-baja" data-id="${a.id}">Dar de baja</button></td>`;
+    tbody.appendChild(tr);
+  });
+
+  tbody.querySelectorAll('.btn-dar-baja').forEach(b =>
+    b.addEventListener('click', () => darDeBaja(b.dataset.id)));
+}
+
+async function darDeBaja(id) {
+  if (!confirm('¿Dar de baja a este afiliado? Su historial de pagos se conserva.')) return;
+  const { error } = await supabase.from('afiliados').update({ activo: false }).eq('id', id);
+  if (error) { showMsg('msg-padron-lista', 'Error: ' + error.message, 'error'); return; }
+  padronData = padronData.filter(a => a.id !== id);
+  renderPadron();
+  tabs.morosos = null;
+}
+
+// ─── IMPORTAR CSV/EXCEL (upsert) ──────────────────────────────
+document.getElementById('btn-importar').addEventListener('click', importarPadron);
 
 function normalizeKey(k) {
-  return String(k).toLowerCase()
-    .normalize('NFD').replace(/[̀-ͯ]/g, '')  // quitar tildes
-    .replace(/[^a-z0-9]/g, '');                         // solo alfanumérico
+  return String(k).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'');
 }
 
-// Diccionarios de alias por campo
 const ALIASES = {
-  nombre:           ['nombre','name','firstname','first','prenombre','names','primer'],
-  apellido:         ['apellido','lastname','surname','last','family','segundo','apellidos'],
-  cuota:            ['cuota','monto','importe','valor','fee','amount','precio','mensualidad','mensual','pago'],
-  dia_vencimiento:  ['diavencimiento','vencimiento','dia','day','diadevencimiento','fechavencimiento',
-                     'vence','diadepago','diapago','plazo','limite','vto','vencimientodepago']
+  nombre:   ['nombre','name','firstname','first','prenombre'],
+  apellido: ['apellido','lastname','surname','last','family'],
+  cuota:    ['cuota','monto','importe','valor','fee','amount','precio','mensualidad','mensual']
 };
-
-function scoreKey(key, fieldAliases) {
-  const nk = normalizeKey(key);
-  for (const alias of fieldAliases) {
-    if (nk === alias) return 100;
-    if (nk.includes(alias) || alias.includes(nk)) return 70;
-    // Levenshtein simple para typos
-    if (levenshtein(nk, alias) <= 2) return 50;
-  }
-  return 0;
-}
 
 function levenshtein(a, b) {
   const m = a.length, n = b.length;
-  const dp = Array.from({length: m+1}, (_, i) => Array.from({length: n+1}, (_, j) => i||j));
+  const dp = Array.from({length:m+1},(_,i)=>Array.from({length:n+1},(_,j)=>i||j));
   for (let i=1;i<=m;i++) for (let j=1;j<=n;j++)
     dp[i][j] = a[i-1]===b[j-1] ? dp[i-1][j-1] : 1+Math.min(dp[i-1][j],dp[i][j-1],dp[i-1][j-1]);
   return dp[m][n];
@@ -254,190 +371,113 @@ function levenshtein(a, b) {
 
 function detectarMapping(headers, sampleRows) {
   const mapping = {};
-
-  // 1. Match por nombre de columna
   for (const h of headers) {
     for (const [field, aliases] of Object.entries(ALIASES)) {
       if (mapping[field]) continue;
-      if (scoreKey(h, aliases) >= 50) mapping[field] = h;
+      const nk = normalizeKey(h);
+      if (aliases.some(a => nk===a || nk.includes(a) || a.includes(nk) || levenshtein(nk,a)<=2))
+        mapping[field] = h;
     }
   }
-
-  // 2. Si faltan campos, detectar por contenido de las celdas
-  const missing = Object.keys(ALIASES).filter(f => !mapping[f]);
-  if (missing.length && sampleRows.length) {
-    for (const h of headers) {
-      if (Object.values(mapping).includes(h)) continue;
-      const vals = sampleRows.map(r => String(r[h] || '')).filter(Boolean);
-      if (!vals.length) continue;
-
-      // ¿Es número con decimales o grande? → cuota
-      const nums = vals.map(v => parseFloat(v.replace(/[,$\s]/g,'')));
-      const allNum = nums.every(n => !isNaN(n));
-      if (allNum && missing.includes('cuota') && nums.some(n => n > 31)) {
-        mapping['cuota'] = h; continue;
-      }
-      // ¿Es entero entre 1 y 31? → dia_vencimiento
-      if (allNum && missing.includes('dia_vencimiento') && nums.every(n => n>=1 && n<=31 && Number.isInteger(n))) {
-        mapping['dia_vencimiento'] = h; continue;
-      }
-      // ¿Solo texto, sin números? → nombre o apellido
-      const onlyText = vals.every(v => /^[a-záéíóúüñA-ZÁÉÍÓÚÜÑ\s'-]+$/.test(v.trim()));
-      if (onlyText) {
-        // Heurística: apellidos suelen ir en mayúsculas o primero en la fila
-        if (missing.includes('apellido') && !mapping['apellido']) { mapping['apellido'] = h; continue; }
-        if (missing.includes('nombre') && !mapping['nombre'])     { mapping['nombre'] = h; continue; }
-      }
-    }
-  }
-
-  // 3. Si nombre y apellido siguen faltando, intentar columna "nombre completo" y dividirla
   if (!mapping['nombre'] || !mapping['apellido']) {
     for (const h of headers) {
+      if (Object.values(mapping).includes(h)) continue;
       const nk = normalizeKey(h);
-      if (['nombrecompleto','nombreyapellido','apellidonombre','apellidoynombre','afiliado','titular','socio'].some(a => nk.includes(a))) {
-        mapping['__fullname'] = h;
-        break;
+      if (['nombrecompleto','nombreyapellido','apellidonombre','afiliado','titular','socio'].some(a=>nk.includes(a))) {
+        mapping['__fullname'] = h; break;
       }
     }
   }
-
+  if (!mapping['cuota'] && sampleRows.length) {
+    for (const h of headers) {
+      if (Object.values(mapping).includes(h)) continue;
+      const nums = sampleRows.map(r=>parseFloat(String(r[h]||'').replace(/[,$\s]/g,''))).filter(n=>!isNaN(n));
+      if (nums.length === sampleRows.length && nums.some(n=>n>31)) { mapping['cuota'] = h; break; }
+    }
+  }
   return mapping;
 }
 
 function aplicarMapping(rows, mapping) {
   return rows.map(r => {
     let nombre = '', apellido = '';
-
     if (mapping['__fullname']) {
-      const full = String(r[mapping['__fullname']] || '').trim();
-      // "Apellido, Nombre" o "Nombre Apellido"
-      if (full.includes(',')) {
-        const [ap, nom] = full.split(',').map(s => s.trim());
-        apellido = ap; nombre = nom;
-      } else {
-        const parts = full.split(/\s+/);
-        apellido = parts.slice(0, Math.ceil(parts.length/2)).join(' ');
-        nombre   = parts.slice(Math.ceil(parts.length/2)).join(' ');
-      }
+      const full = String(r[mapping['__fullname']]||'').trim();
+      if (full.includes(',')) { [apellido, nombre] = full.split(',').map(s=>s.trim()); }
+      else { const p=full.split(/\s+/); apellido=p.slice(0,Math.ceil(p.length/2)).join(' '); nombre=p.slice(Math.ceil(p.length/2)).join(' '); }
     } else {
-      nombre   = String(r[mapping['nombre']]   || '').trim();
-      apellido = String(r[mapping['apellido']] || '').trim();
+      nombre   = String(r[mapping['nombre']]  ||'').trim();
+      apellido = String(r[mapping['apellido']]||'').trim();
     }
-
-    const rawCuota = String(r[mapping['cuota']] || '0').replace(/[,$\s]/g, '');
-    const cuota    = parseFloat(rawCuota) || 0;
-    const rawDia   = String(r[mapping['dia_vencimiento']] || '10').replace(/[^0-9]/g,'');
-    const dia      = Math.min(31, Math.max(1, parseInt(rawDia) || 10));
-
-    return { nombre, apellido, cuota, dia_vencimiento: dia, activo: true };
+    const cuota = parseFloat(String(r[mapping['cuota']]||'0').replace(/[,$\s]/g,'')) || 0;
+    return { nombre, apellido, cuota, dia_vencimiento: DIA_VENC, activo: true };
   }).filter(a => a.nombre && a.apellido);
 }
 
-// ── Importar CSV/Excel ────────────────────────────────────────
-document.getElementById('btn-importar').addEventListener('click', importarPadron);
-
 async function importarPadron() {
   const file = document.getElementById('inp-csv').files[0];
-  if (!file) { showMsg('msg-import', 'Seleccione un archivo CSV o Excel.', 'error'); return; }
-
-  showMsg('msg-import', 'Analizando archivo…', 'info');
+  if (!file) { showMsg('msg-import','Seleccione un archivo.','error'); return; }
+  showMsg('msg-import','Analizando archivo…','info');
 
   let rows = [];
   const ext = file.name.split('.').pop().toLowerCase();
-
   try {
     if (ext === 'csv') {
       const text = await file.text();
-      // Intentar con y sin encabezados
-      const r1 = Papa.parse(text, { header: true,  skipEmptyLines: true });
-      const r2 = Papa.parse(text, { header: false, skipEmptyLines: true });
-      // Si las keys del primer parse son números, no hay encabezados
-      const firstKeys = Object.keys(r1.data[0] || {});
-      if (firstKeys.every(k => !isNaN(k))) {
-        // Sin encabezados: asignar nombres genéricos
-        rows = r2.data.map(arr => {
-          const obj = {};
-          arr.forEach((v, i) => { obj[`col${i}`] = v; });
-          return obj;
-        });
-      } else {
-        rows = r1.data;
-      }
+      const r = Papa.parse(text, { header: true, skipEmptyLines: true });
+      rows = r.data;
     } else {
       const buf = await file.arrayBuffer();
-      const wb  = XLSX.read(buf, { type: 'array' });
-      const ws  = wb.Sheets[wb.SheetNames[0]];
-      // Intentar con encabezados, si falla usar índice
-      rows = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false });
-      if (!rows.length) {
-        const arr = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-        rows = arr.slice(1).map(r => {
-          const obj = {}; r.forEach((v,i) => { obj[`col${i}`] = v; }); return obj;
-        });
-      }
+      const wb  = XLSX.read(buf, { type:'array' });
+      rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval:'', raw:false });
     }
-  } catch(e) {
-    showMsg('msg-import', 'Error leyendo el archivo: ' + e.message, 'error'); return;
-  }
+  } catch(e) { showMsg('msg-import','Error leyendo archivo: '+e.message,'error'); return; }
 
-  if (!rows.length) { showMsg('msg-import', 'El archivo no contiene datos.', 'error'); return; }
+  if (!rows.length) { showMsg('msg-import','El archivo no tiene datos.','error'); return; }
 
   const headers = Object.keys(rows[0]);
-  const sample  = rows.slice(0, 5);
-  const mapping = detectarMapping(headers, sample);
-
-  // Verificar que al menos tengamos forma de obtener nombre + apellido
+  const mapping = detectarMapping(headers, rows.slice(0,5));
   const tieneNombres = (mapping['nombre'] && mapping['apellido']) || mapping['__fullname'];
   if (!tieneNombres) {
-    showMsg('msg-import',
-      `No se pudieron identificar las columnas de nombre/apellido. Columnas detectadas: <strong>${headers.join(', ')}</strong>. El sistema buscó variantes en español e inglés. Revisá que el archivo tenga columnas con esos datos.`,
-      'error');
+    showMsg('msg-import',`No se identificaron columnas de nombre/apellido. Columnas: <strong>${headers.join(', ')}</strong>`,'error');
     return;
   }
 
   const afiliados = aplicarMapping(rows, mapping);
-  if (!afiliados.length) { showMsg('msg-import', 'No se encontraron filas válidas después de procesar.', 'error'); return; }
+  if (!afiliados.length) { showMsg('msg-import','Sin filas válidas.','error'); return; }
 
-  // Mostrar preview antes de insertar
   mostrarPreviewImport(afiliados, mapping, headers);
 }
 
 let afiliadosPreview = [];
 
-function mostrarPreviewImport(afiliados, mapping, headers) {
+function mostrarPreviewImport(afiliados, mapping) {
   afiliadosPreview = afiliados;
-  const camposDetectados = Object.entries(mapping)
-    .filter(([k]) => !k.startsWith('__'))
-    .map(([campo, col]) => `<strong>${campo}</strong> → "${col}"`)
-    .join(' &nbsp;|&nbsp; ');
-
-  const filasMuestra = afiliados.slice(0, 4).map(a =>
-    `<tr><td>${esc(a.apellido)}</td><td>${esc(a.nombre)}</td><td>$${a.cuota}</td><td>${a.dia_vencimiento}</td></tr>`
-  ).join('');
+  const campos = Object.entries(mapping).filter(([k])=>!k.startsWith('__'))
+    .map(([f,c])=>`<strong>${f}</strong> → "${c}"`).join(' &nbsp;·&nbsp; ');
+  const muestra = afiliados.slice(0,4)
+    .map(a=>`<tr><td>${esc(a.apellido)}</td><td>${esc(a.nombre)}</td><td>$${a.cuota}</td></tr>`).join('');
 
   document.getElementById('msg-import').innerHTML = `
     <div class="msg msg-info" style="margin-bottom:12px;">
-      <strong>Detección automática de columnas:</strong><br/>
-      <span style="font-size:0.82rem;">${camposDetectados}</span>
+      <span style="font-size:.78rem;">Columnas detectadas: ${campos}</span>
     </div>
-    <div style="margin-bottom:12px;font-size:0.85rem;color:#444;">
-      <strong>${afiliados.length}</strong> afiliados detectados. Vista previa de los primeros:
-    </div>
+    <p style="font-size:.82rem;margin-bottom:12px;color:var(--ink-soft);">
+      <strong>${afiliados.length}</strong> afiliados. Existentes → se actualiza solo la cuota. Nuevos → se insertan.
+    </p>
     <div class="table-wrap" style="margin-bottom:14px;">
-      <table style="font-size:0.82rem;">
-        <thead><tr><th>Apellido</th><th>Nombre</th><th>Cuota</th><th>Día venc.</th></tr></thead>
-        <tbody>${filasMuestra}</tbody>
+      <table style="font-size:.82rem;">
+        <thead><tr><th>Apellido</th><th>Nombre</th><th>Cuota</th></tr></thead>
+        <tbody>${muestra}</tbody>
       </table>
     </div>
     <div style="display:flex;gap:10px;">
-      <button class="btn btn-primary btn-sm" id="btn-confirm-import">Confirmar importación</button>
+      <button class="btn btn-primary btn-sm" id="btn-confirm-import">Confirmar</button>
       <button class="btn btn-secondary btn-sm" id="btn-cancel-import">Cancelar</button>
-    </div>
-  `;
+    </div>`;
 
   document.getElementById('btn-confirm-import').addEventListener('click', confirmarImport);
-  document.getElementById('btn-cancel-import').addEventListener('click', () => {
+  document.getElementById('btn-cancel-import').addEventListener('click',  () => {
     document.getElementById('msg-import').innerHTML = '';
     afiliadosPreview = [];
   });
@@ -445,61 +485,44 @@ function mostrarPreviewImport(afiliados, mapping, headers) {
 
 async function confirmarImport() {
   if (!afiliadosPreview.length) return;
-  const { error } = await supabase.from('afiliados').insert(afiliadosPreview);
-  if (error) { showMsg('msg-import', 'Error al importar: ' + error.message, 'error'); return; }
-  showMsg('msg-import', `Se importaron ${afiliadosPreview.length} afiliados correctamente.`, 'success');
+
+  // Upsert: si (nombre, apellido) ya existe → actualiza cuota; si no → inserta
+  const { error } = await supabase.from('afiliados')
+    .upsert(afiliadosPreview, { onConflict: 'nombre,apellido', ignoreDuplicates: false });
+
+  if (error) { showMsg('msg-import','Error: '+error.message,'error'); return; }
+
+  showMsg('msg-import',`Padrón actualizado — ${afiliadosPreview.length} registros procesados.`,'success');
   afiliadosPreview = [];
-  cargarTabla();
+  // Invalidar cachés
+  tabs.morosos = null;
+  padronData   = [];
+  tabs.padron  = null;
+  cargarPadron();
 }
 
-// ── Exportar CSV ──────────────────────────────────────────────
-document.getElementById('btn-exportar').addEventListener('click', exportarCSV);
-
-function exportarCSV() {
-  const mes = document.getElementById('fil-mes').value;
-  const hoy = new Date();
-  const [mesY, mesM] = mes.split('-').map(Number);
-
-  const filas = todosLosAfiliados.map(a => {
-    const pago = todosPagos.find(p => p.afiliado_id === a.id);
-    let estado = 'pendiente';
-    if (pago) {
-      estado = pago.estado;
-    } else {
-      const esMesActual = (mesY === hoy.getFullYear() && mesM === hoy.getMonth() + 1);
-      const esMesPasado = mesY < hoy.getFullYear() || (mesY === hoy.getFullYear() && mesM < hoy.getMonth() + 1);
-      if (esMesPasado || (esMesActual && hoy.getDate() > a.dia_vencimiento)) estado = 'vencido';
-    }
-    return {
-      Apellido: a.apellido,
-      Nombre: a.nombre,
-      Cuota: a.cuota,
-      'Día vencimiento': a.dia_vencimiento,
-      Estado: estado,
-      Referencia: pago?.referencia || '',
-      'Motivo rechazo': pago?.motivo_rechazo || ''
-    };
-  });
-
-  const csv = Papa.unparse(filas);
-  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `pagos_${mes}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-// ── Helpers ───────────────────────────────────────────────────
-function showMsg(id, text, type) {
-  document.getElementById(id).innerHTML = `<div class="msg msg-${type}">${text}</div>`;
-  setTimeout(() => { const el = document.getElementById(id); if (el) el.innerHTML = ''; }, 5000);
+// ─── HELPERS ──────────────────────────────────────────────────
+function labelEstado(e) {
+  return { pagado:'Pagado', reportado:'Reportado', pendiente:'Pendiente', vencido:'Vencido' }[e] || e;
 }
 
 function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-// ── Init ──────────────────────────────────────────────────────
+function showMsg(id, html, type) {
+  document.getElementById(id).innerHTML = `<div class="msg msg-${type}">${html}</div>`;
+  if (type !== 'info') setTimeout(()=>{ const el=document.getElementById(id); if(el) el.innerHTML=''; }, 5000);
+}
+
+function descargarCSV(filas, nombre) {
+  const csv  = Papa.unparse(filas);
+  const blob = new Blob(['﻿'+csv], { type:'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = nombre; a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ─── INIT ─────────────────────────────────────────────────────
 checkSession();

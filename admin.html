@@ -19,7 +19,6 @@
       </div>
     </div>
   </header>
-
   <div class="login-wrap">
     <div class="login-logo-wrap">
       <img src="logo.png" alt="Logo" class="login-logo" />
@@ -55,91 +54,164 @@
   <nav>
     <div class="nav-inner">
       <a href="index.html" class="nav-link">Vista Pública</a>
-      <a href="#" class="nav-link active">Dashboard</a>
+      <a href="#" class="nav-link active" id="tab-pagos-link">Pagos del mes</a>
+      <a href="#" class="nav-link" id="tab-morosos-link">Morosos</a>
+      <a href="#" class="nav-link" id="tab-padron-link">Padrón</a>
     </div>
   </nav>
 
   <main class="wide">
 
-    <!-- Contadores -->
-    <div class="counters">
-      <div class="counter-card pagado">
-        <div class="counter-num" id="cnt-pagado">—</div>
-        <div class="counter-label">Pagados</div>
+    <!-- ══ PESTAÑA: PAGOS DEL MES ══ -->
+    <div id="tab-pagos">
+
+      <div class="counters">
+        <div class="counter-card pagado">
+          <div class="counter-num" id="cnt-pagado">—</div>
+          <div class="counter-label">Pagados</div>
+        </div>
+        <div class="counter-card reportado">
+          <div class="counter-num" id="cnt-reportado">—</div>
+          <div class="counter-label">Reportados</div>
+        </div>
+        <div class="counter-card pendiente">
+          <div class="counter-num" id="cnt-pendiente">—</div>
+          <div class="counter-label">Pendientes</div>
+        </div>
+        <div class="counter-card vencido">
+          <div class="counter-num" id="cnt-vencido">—</div>
+          <div class="counter-label">Vencidos</div>
+        </div>
       </div>
-      <div class="counter-card reportado">
-        <div class="counter-num" id="cnt-reportado">—</div>
-        <div class="counter-label">Reportados</div>
-      </div>
-      <div class="counter-card pendiente">
-        <div class="counter-num" id="cnt-pendiente">—</div>
-        <div class="counter-label">Pendientes</div>
-      </div>
-      <div class="counter-card vencido">
-        <div class="counter-num" id="cnt-vencido">—</div>
-        <div class="counter-label">Vencidos</div>
+
+      <div class="card">
+        <div class="card-title">Estado de pagos del mes</div>
+        <div id="msg-tabla"></div>
+        <div class="filters">
+          <div class="form-group">
+            <label for="fil-mes">Mes</label>
+            <select id="fil-mes"></select>
+          </div>
+          <div class="form-group">
+            <label for="fil-estado">Estado</label>
+            <select id="fil-estado">
+              <option value="">Todos</option>
+              <option value="pagado">Pagado</option>
+              <option value="reportado">Reportado</option>
+              <option value="pendiente">Pendiente</option>
+              <option value="vencido">Vencido</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="fil-buscar">Buscar</label>
+            <input type="text" id="fil-buscar" placeholder="Apellido o nombre…" />
+          </div>
+          <button class="btn btn-primary btn-sm" id="btn-filtrar" style="align-self:flex-end;margin-bottom:20px;">Filtrar</button>
+          <button class="btn btn-secondary btn-sm" id="btn-exportar" style="align-self:flex-end;margin-bottom:20px;">Exportar CSV</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Apellido</th>
+                <th>Nombre</th>
+                <th>Cuota</th>
+                <th>Estado</th>
+                <th>Referencia</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-afiliados"></tbody>
+          </table>
+        </div>
+        <div id="sin-resultados" class="hidden" style="text-align:center;padding:28px;color:var(--mid);font-size:.88rem;">No se encontraron registros.</div>
       </div>
     </div>
 
-    <!-- Gestión de afiliados -->
-    <div class="card">
-      <div class="card-title">Importar / Gestionar Padrón</div>
-      <div id="msg-import"></div>
-      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
-        <div>
-          <label style="text-transform:none;font-size:0.85rem;" for="inp-csv">Cargar CSV o Excel (columnas: nombre, apellido, cuota, dia_vencimiento)</label>
-          <input type="file" id="inp-csv" accept=".csv,.xlsx,.xls" style="margin-top:6px;" />
+    <!-- ══ PESTAÑA: MOROSOS ══ -->
+    <div id="tab-morosos" class="hidden">
+      <div class="card">
+        <div class="card-title">Registro de Morosos</div>
+        <div id="msg-morosos"></div>
+        <div class="filters" style="margin-bottom:20px;">
+          <div class="form-group">
+            <label for="mor-buscar">Buscar afiliado</label>
+            <input type="text" id="mor-buscar" placeholder="Apellido o nombre…" />
+          </div>
+          <div class="form-group">
+            <label for="mor-min-meses">Meses adeudados mínimo</label>
+            <select id="mor-min-meses">
+              <option value="1">1 o más</option>
+              <option value="2">2 o más</option>
+              <option value="3">3 o más</option>
+              <option value="6">6 o más</option>
+            </select>
+          </div>
+          <button class="btn btn-primary btn-sm" id="btn-filtrar-morosos" style="align-self:flex-end;margin-bottom:20px;">Filtrar</button>
+          <button class="btn btn-secondary btn-sm" id="btn-exportar-morosos" style="align-self:flex-end;margin-bottom:20px;">Exportar CSV</button>
         </div>
-        <button class="btn btn-primary btn-sm" id="btn-importar" style="margin-top:22px;">Importar</button>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Apellido</th>
+                <th>Nombre</th>
+                <th>Cuota</th>
+                <th>Meses adeudados</th>
+                <th>Deuda total</th>
+                <th>Detalle</th>
+              </tr>
+            </thead>
+            <tbody id="tbody-morosos"></tbody>
+          </table>
+        </div>
+        <div id="sin-morosos" class="hidden" style="text-align:center;padding:28px;color:var(--mid);font-size:.88rem;">No se encontraron morosos con los filtros seleccionados.</div>
       </div>
-      <p style="font-size:0.78rem;color:#777;margin-top:10px;">El sistema detecta automáticamente las columnas. Acepta nombres en español, inglés, abreviaturas, columnas en cualquier orden, con o sin encabezados, y hasta "nombre completo" en una sola columna.</p>
     </div>
 
-    <!-- Filtros + tabla -->
-    <div class="card">
-      <div class="card-title">Estado de pagos del mes</div>
-      <div id="msg-tabla"></div>
-
-      <div class="filters">
+    <!-- ══ PESTAÑA: PADRÓN ══ -->
+    <div id="tab-padron" class="hidden">
+      <div class="card">
+        <div class="card-title">Actualizar Padrón</div>
+        <div id="msg-import"></div>
         <div class="form-group">
-          <label for="fil-mes">Mes</label>
-          <select id="fil-mes"></select>
+          <label for="inp-csv">Archivo CSV o Excel</label>
+          <input type="file" id="inp-csv" accept=".csv,.xlsx,.xls" />
         </div>
-        <div class="form-group">
-          <label for="fil-estado">Estado</label>
-          <select id="fil-estado">
-            <option value="">Todos</option>
-            <option value="pagado">Pagado</option>
-            <option value="reportado">Reportado</option>
-            <option value="pendiente">Pendiente</option>
-            <option value="vencido">Vencido</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label for="fil-buscar">Buscar nombre</label>
-          <input type="text" id="fil-buscar" placeholder="Apellido o nombre…" />
-        </div>
-        <button class="btn btn-primary btn-sm" id="btn-filtrar" style="margin-top:22px;">Filtrar</button>
-        <button class="btn btn-secondary btn-sm" id="btn-exportar" style="margin-top:22px;">Exportar CSV</button>
+        <p style="font-size:.75rem;color:var(--mid);margin-bottom:20px;line-height:1.7;">
+          El sistema detecta columnas automáticamente (nombre, apellido, cuota). Vencimiento fijo: día 10.<br/>
+          Si un afiliado ya existe, <strong>solo se actualiza la cuota</strong> — su historial de pagos no se modifica.<br/>
+          Los nuevos afiliados se agregan al padrón sin afectar los registros existentes.
+        </p>
+        <button class="btn btn-primary btn-sm" id="btn-importar">Procesar archivo</button>
       </div>
 
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Apellido</th>
-              <th>Nombre</th>
-              <th>Cuota</th>
-              <th>Vence día</th>
-              <th>Estado</th>
-              <th>Referencia</th>
-              <th>Acciones</th>
-            </tr>
-          </thead>
-          <tbody id="tbody-afiliados"></tbody>
-        </table>
+      <div class="card">
+        <div class="card-title">Afiliados activos</div>
+        <div id="msg-padron-lista"></div>
+        <div class="filters" style="margin-bottom:20px;">
+          <div class="form-group">
+            <label for="fil-padron-buscar">Buscar</label>
+            <input type="text" id="fil-padron-buscar" placeholder="Apellido o nombre…" />
+          </div>
+          <button class="btn btn-primary btn-sm" id="btn-filtrar-padron" style="align-self:flex-end;margin-bottom:20px;">Buscar</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Apellido</th>
+                <th>Nombre</th>
+                <th>Cuota mensual</th>
+                <th>Vencimiento</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="tbody-padron"></tbody>
+          </table>
+        </div>
+        <div id="sin-padron" class="hidden" style="text-align:center;padding:28px;color:var(--mid);font-size:.88rem;">Sin resultados.</div>
       </div>
-      <div id="sin-resultados" class="hidden" style="text-align:center;padding:24px;color:#777;font-size:0.9rem;">No se encontraron registros.</div>
     </div>
 
   </main>
