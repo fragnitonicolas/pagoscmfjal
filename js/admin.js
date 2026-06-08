@@ -216,6 +216,124 @@ document.getElementById('btn-cerrar-comp').addEventListener('click', () => {
   document.getElementById('modal-comprobante').classList.add('hidden');
 });
 
+// ── Parser inteligente de padrón ──────────────────────────────
+
+function normalizeKey(k) {
+  return String(k).toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')  // quitar tildes
+    .replace(/[^a-z0-9]/g, '');                         // solo alfanumérico
+}
+
+// Diccionarios de alias por campo
+const ALIASES = {
+  nombre:           ['nombre','name','firstname','first','prenombre','names','primer'],
+  apellido:         ['apellido','lastname','surname','last','family','segundo','apellidos'],
+  cuota:            ['cuota','monto','importe','valor','fee','amount','precio','mensualidad','mensual','pago'],
+  dia_vencimiento:  ['diavencimiento','vencimiento','dia','day','diadevencimiento','fechavencimiento',
+                     'vence','diadepago','diapago','plazo','limite','vto','vencimientodepago']
+};
+
+function scoreKey(key, fieldAliases) {
+  const nk = normalizeKey(key);
+  for (const alias of fieldAliases) {
+    if (nk === alias) return 100;
+    if (nk.includes(alias) || alias.includes(nk)) return 70;
+    // Levenshtein simple para typos
+    if (levenshtein(nk, alias) <= 2) return 50;
+  }
+  return 0;
+}
+
+function levenshtein(a, b) {
+  const m = a.length, n = b.length;
+  const dp = Array.from({length: m+1}, (_, i) => Array.from({length: n+1}, (_, j) => i||j));
+  for (let i=1;i<=m;i++) for (let j=1;j<=n;j++)
+    dp[i][j] = a[i-1]===b[j-1] ? dp[i-1][j-1] : 1+Math.min(dp[i-1][j],dp[i][j-1],dp[i-1][j-1]);
+  return dp[m][n];
+}
+
+function detectarMapping(headers, sampleRows) {
+  const mapping = {};
+
+  // 1. Match por nombre de columna
+  for (const h of headers) {
+    for (const [field, aliases] of Object.entries(ALIASES)) {
+      if (mapping[field]) continue;
+      if (scoreKey(h, aliases) >= 50) mapping[field] = h;
+    }
+  }
+
+  // 2. Si faltan campos, detectar por contenido de las celdas
+  const missing = Object.keys(ALIASES).filter(f => !mapping[f]);
+  if (missing.length && sampleRows.length) {
+    for (const h of headers) {
+      if (Object.values(mapping).includes(h)) continue;
+      const vals = sampleRows.map(r => String(r[h] || '')).filter(Boolean);
+      if (!vals.length) continue;
+
+      // ¿Es número con decimales o grande? → cuota
+      const nums = vals.map(v => parseFloat(v.replace(/[,$\s]/g,'')));
+      const allNum = nums.every(n => !isNaN(n));
+      if (allNum && missing.includes('cuota') && nums.some(n => n > 31)) {
+        mapping['cuota'] = h; continue;
+      }
+      // ¿Es entero entre 1 y 31? → dia_vencimiento
+      if (allNum && missing.includes('dia_vencimiento') && nums.every(n => n>=1 && n<=31 && Number.isInteger(n))) {
+        mapping['dia_vencimiento'] = h; continue;
+      }
+      // ¿Solo texto, sin números? → nombre o apellido
+      const onlyText = vals.every(v => /^[a-záéíóúüñA-ZÁÉÍÓÚÜÑ\s'-]+$/.test(v.trim()));
+      if (onlyText) {
+        // Heurística: apellidos suelen ir en mayúsculas o primero en la fila
+        if (missing.includes('apellido') && !mapping['apellido']) { mapping['apellido'] = h; continue; }
+        if (missing.includes('nombre') && !mapping['nombre'])     { mapping['nombre'] = h; continue; }
+      }
+    }
+  }
+
+  // 3. Si nombre y apellido siguen faltando, intentar columna "nombre completo" y dividirla
+  if (!mapping['nombre'] || !mapping['apellido']) {
+    for (const h of headers) {
+      const nk = normalizeKey(h);
+      if (['nombrecompleto','nombreyapellido','apellidonombre','apellidoynombre','afiliado','titular','socio'].some(a => nk.includes(a))) {
+        mapping['__fullname'] = h;
+        break;
+      }
+    }
+  }
+
+  return mapping;
+}
+
+function aplicarMapping(rows, mapping) {
+  return rows.map(r => {
+    let nombre = '', apellido = '';
+
+    if (mapping['__fullname']) {
+      const full = String(r[mapping['__fullname']] || '').trim();
+      // "Apellido, Nombre" o "Nombre Apellido"
+      if (full.includes(',')) {
+        const [ap, nom] = full.split(',').map(s => s.trim());
+        apellido = ap; nombre = nom;
+      } else {
+        const parts = full.split(/\s+/);
+        apellido = parts.slice(0, Math.ceil(parts.length/2)).join(' ');
+        nombre   = parts.slice(Math.ceil(parts.length/2)).join(' ');
+      }
+    } else {
+      nombre   = String(r[mapping['nombre']]   || '').trim();
+      apellido = String(r[mapping['apellido']] || '').trim();
+    }
+
+    const rawCuota = String(r[mapping['cuota']] || '0').replace(/[,$\s]/g, '');
+    const cuota    = parseFloat(rawCuota) || 0;
+    const rawDia   = String(r[mapping['dia_vencimiento']] || '10').replace(/[^0-9]/g,'');
+    const dia      = Math.min(31, Math.max(1, parseInt(rawDia) || 10));
+
+    return { nombre, apellido, cuota, dia_vencimiento: dia, activo: true };
+  }).filter(a => a.nombre && a.apellido);
+}
+
 // ── Importar CSV/Excel ────────────────────────────────────────
 document.getElementById('btn-importar').addEventListener('click', importarPadron);
 
@@ -223,49 +341,114 @@ async function importarPadron() {
   const file = document.getElementById('inp-csv').files[0];
   if (!file) { showMsg('msg-import', 'Seleccione un archivo CSV o Excel.', 'error'); return; }
 
+  showMsg('msg-import', 'Analizando archivo…', 'info');
+
   let rows = [];
   const ext = file.name.split('.').pop().toLowerCase();
 
-  if (ext === 'csv') {
-    const text = await file.text();
-    const result = Papa.parse(text, { header: true, skipEmptyLines: true });
-    rows = result.data;
-  } else {
-    const buf = await file.arrayBuffer();
-    const wb = XLSX.read(buf, { type: 'array' });
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+  try {
+    if (ext === 'csv') {
+      const text = await file.text();
+      // Intentar con y sin encabezados
+      const r1 = Papa.parse(text, { header: true,  skipEmptyLines: true });
+      const r2 = Papa.parse(text, { header: false, skipEmptyLines: true });
+      // Si las keys del primer parse son números, no hay encabezados
+      const firstKeys = Object.keys(r1.data[0] || {});
+      if (firstKeys.every(k => !isNaN(k))) {
+        // Sin encabezados: asignar nombres genéricos
+        rows = r2.data.map(arr => {
+          const obj = {};
+          arr.forEach((v, i) => { obj[`col${i}`] = v; });
+          return obj;
+        });
+      } else {
+        rows = r1.data;
+      }
+    } else {
+      const buf = await file.arrayBuffer();
+      const wb  = XLSX.read(buf, { type: 'array' });
+      const ws  = wb.Sheets[wb.SheetNames[0]];
+      // Intentar con encabezados, si falla usar índice
+      rows = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false });
+      if (!rows.length) {
+        const arr = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+        rows = arr.slice(1).map(r => {
+          const obj = {}; r.forEach((v,i) => { obj[`col${i}`] = v; }); return obj;
+        });
+      }
+    }
+  } catch(e) {
+    showMsg('msg-import', 'Error leyendo el archivo: ' + e.message, 'error'); return;
   }
 
-  if (rows.length === 0) { showMsg('msg-import', 'El archivo no contiene datos.', 'error'); return; }
+  if (!rows.length) { showMsg('msg-import', 'El archivo no contiene datos.', 'error'); return; }
 
-  // Normalizar claves (minúsculas, sin espacios)
-  const normalize = obj => {
-    const n = {};
-    Object.keys(obj).forEach(k => { n[k.toLowerCase().trim().replace(/\s+/g,'_')] = obj[k]; });
-    return n;
-  };
+  const headers = Object.keys(rows[0]);
+  const sample  = rows.slice(0, 5);
+  const mapping = detectarMapping(headers, sample);
 
-  const afiliados = rows.map(r => {
-    const n = normalize(r);
-    return {
-      nombre: String(n.nombre || '').trim(),
-      apellido: String(n.apellido || '').trim(),
-      cuota: parseFloat(n.cuota) || 0,
-      dia_vencimiento: parseInt(n.dia_vencimiento || n.dia || n.vencimiento) || 10,
-      activo: true
-    };
-  }).filter(a => a.nombre && a.apellido);
-
-  if (afiliados.length === 0) {
-    showMsg('msg-import', 'No se encontraron filas válidas. Verifique las columnas: nombre, apellido, cuota, dia_vencimiento.', 'error');
+  // Verificar que al menos tengamos forma de obtener nombre + apellido
+  const tieneNombres = (mapping['nombre'] && mapping['apellido']) || mapping['__fullname'];
+  if (!tieneNombres) {
+    showMsg('msg-import',
+      `No se pudieron identificar las columnas de nombre/apellido. Columnas detectadas: <strong>${headers.join(', ')}</strong>. El sistema buscó variantes en español e inglés. Revisá que el archivo tenga columnas con esos datos.`,
+      'error');
     return;
   }
 
-  const { error } = await supabase.from('afiliados').insert(afiliados);
-  if (error) { showMsg('msg-import', 'Error al importar: ' + error.message, 'error'); return; }
+  const afiliados = aplicarMapping(rows, mapping);
+  if (!afiliados.length) { showMsg('msg-import', 'No se encontraron filas válidas después de procesar.', 'error'); return; }
 
-  showMsg('msg-import', `Se importaron ${afiliados.length} afiliados correctamente.`, 'success');
+  // Mostrar preview antes de insertar
+  mostrarPreviewImport(afiliados, mapping, headers);
+}
+
+let afiliadosPreview = [];
+
+function mostrarPreviewImport(afiliados, mapping, headers) {
+  afiliadosPreview = afiliados;
+  const camposDetectados = Object.entries(mapping)
+    .filter(([k]) => !k.startsWith('__'))
+    .map(([campo, col]) => `<strong>${campo}</strong> → "${col}"`)
+    .join(' &nbsp;|&nbsp; ');
+
+  const filasMuestra = afiliados.slice(0, 4).map(a =>
+    `<tr><td>${esc(a.apellido)}</td><td>${esc(a.nombre)}</td><td>$${a.cuota}</td><td>${a.dia_vencimiento}</td></tr>`
+  ).join('');
+
+  document.getElementById('msg-import').innerHTML = `
+    <div class="msg msg-info" style="margin-bottom:12px;">
+      <strong>Detección automática de columnas:</strong><br/>
+      <span style="font-size:0.82rem;">${camposDetectados}</span>
+    </div>
+    <div style="margin-bottom:12px;font-size:0.85rem;color:#444;">
+      <strong>${afiliados.length}</strong> afiliados detectados. Vista previa de los primeros:
+    </div>
+    <div class="table-wrap" style="margin-bottom:14px;">
+      <table style="font-size:0.82rem;">
+        <thead><tr><th>Apellido</th><th>Nombre</th><th>Cuota</th><th>Día venc.</th></tr></thead>
+        <tbody>${filasMuestra}</tbody>
+      </table>
+    </div>
+    <div style="display:flex;gap:10px;">
+      <button class="btn btn-primary btn-sm" id="btn-confirm-import">Confirmar importación</button>
+      <button class="btn btn-secondary btn-sm" id="btn-cancel-import">Cancelar</button>
+    </div>
+  `;
+
+  document.getElementById('btn-confirm-import').addEventListener('click', confirmarImport);
+  document.getElementById('btn-cancel-import').addEventListener('click', () => {
+    document.getElementById('msg-import').innerHTML = '';
+    afiliadosPreview = [];
+  });
+}
+
+async function confirmarImport() {
+  if (!afiliadosPreview.length) return;
+  const { error } = await supabase.from('afiliados').insert(afiliadosPreview);
+  if (error) { showMsg('msg-import', 'Error al importar: ' + error.message, 'error'); return; }
+  showMsg('msg-import', `Se importaron ${afiliadosPreview.length} afiliados correctamente.`, 'success');
+  afiliadosPreview = [];
   cargarTabla();
 }
 

@@ -1,3 +1,6 @@
+/* ── Google Fonts ── */
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap');
+
 /* ── Reset & variables ── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -16,7 +19,7 @@
 }
 
 body {
-  font-family: 'Segoe UI', Arial, sans-serif;
+  font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
   font-size: 15px;
   background: var(--gris-fon);
   color: var(--negro);
@@ -49,7 +52,7 @@ header {
 .header-texts { flex: 1; }
 
 .header-titulo {
-  font-family: Georgia, 'Times New Roman', serif;
+  font-family: 'Playfair Display', Georgia, serif;
   font-size: 1.15rem;
   font-weight: 700;
   letter-spacing: 0.02em;
@@ -57,7 +60,7 @@ header {
 }
 
 .header-subtitulo {
-  font-family: 'Segoe UI', Arial, sans-serif;
+  font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
   font-size: 0.78rem;
   color: var(--gris-cla);
   margin-top: 4px;
@@ -115,7 +118,7 @@ main.wide { max-width: 1100px; }
 }
 
 .card-title {
-  font-family: Georgia, 'Times New Roman', serif;
+  font-family: 'Playfair Display', Georgia, serif;
   font-size: 1.1rem;
   font-weight: 700;
   color: var(--negro);
@@ -244,7 +247,7 @@ input[type="file"] {
 .counter-card.pendiente{ border-top-color: var(--gris-med); }
 
 .counter-num {
-  font-family: Georgia, serif;
+  font-family: 'Playfair Display', Georgia, serif;
   font-size: 2.2rem;
   font-weight: 700;
   color: var(--negro);
@@ -355,7 +358,7 @@ tbody td { padding: 10px 14px; vertical-align: middle; }
 }
 
 .modal-title {
-  font-family: Georgia, serif;
+  font-family: 'Playfair Display', Georgia, serif;
   font-size: 1rem;
   font-weight: 700;
   margin-bottom: 20px;
@@ -378,7 +381,7 @@ tbody td { padding: 10px 14px; vertical-align: middle; }
 .login-logo { height: 80px; }
 
 .login-inst {
-  font-family: Georgia, serif;
+  font-family: 'Playfair Display', Georgia, serif;
   font-size: 0.95rem;
   text-align: center;
   color: var(--gris-osc);
