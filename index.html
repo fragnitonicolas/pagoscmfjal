@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sistema de Pagos — CMFJAL</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <img src="logo.png" alt="Logo CMFJAL" class="header-logo" />
+    <div class="header-texts">
+      <div class="header-titulo">Colegio de la Magistratura y la Función Judicial — Avellaneda · Lanús</div>
+      <div class="header-subtitulo">Sistema de Gestión de Pagos</div>
+    </div>
+  </div>
+</header>
+
+<nav>
+  <div class="nav-inner">
+    <a href="index.html" class="nav-link active">Reportar Pago</a>
+    <a href="admin.html" class="nav-link">Panel Administrador</a>
+  </div>
+</nav>
+
+<main>
+
+  <!-- Paso 1: buscar afiliado -->
+  <div class="card" id="step-buscar">
+    <div class="card-title">Consulta y Reporte de Pago</div>
+    <div id="msg-buscar"></div>
+    <div class="form-group">
+      <label for="inp-buscar">Buscar afiliado (nombre o apellido)</label>
+      <div class="autocomplete-wrap">
+        <input type="text" id="inp-buscar" placeholder="Escriba al menos 2 caracteres..." autocomplete="off" />
+        <ul class="autocomplete-list hidden" id="autocomplete-list"></ul>
+      </div>
+    </div>
+    <div id="afiliado-seleccionado" class="hidden">
+      <div class="msg msg-info" id="afiliado-info"></div>
+    </div>
+  </div>
+
+  <!-- Paso 2: formulario de pago -->
+  <div class="card hidden" id="step-pago">
+    <div class="card-title">Subir Comprobante de Pago</div>
+    <div id="msg-pago"></div>
+
+    <div class="form-group">
+      <label for="sel-mes">Mes a abonar</label>
+      <select id="sel-mes"></select>
+    </div>
+
+    <div class="form-group">
+      <label>Estado actual del mes seleccionado</label>
+      <div id="estado-actual"><span class="badge badge-pendiente">Pendiente</span></div>
+    </div>
+
+    <div class="form-group" id="grupo-comprobante">
+      <label>Comprobante de pago (JPG, PNG o PDF — máx. 5 MB)</label>
+      <div class="upload-area" id="upload-area">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#aaa" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <p>Haga clic o arrastre el archivo aquí</p>
+        <input type="file" id="inp-archivo" accept=".jpg,.jpeg,.png,.pdf" style="display:none" />
+      </div>
+      <div id="archivo-nombre" class="mt-12" style="font-size:0.85rem;color:#555;"></div>
+    </div>
+
+    <div class="form-group">
+      <label for="inp-ref">Número de comprobante / referencia (opcional)</label>
+      <input type="text" id="inp-ref" placeholder="Ej: 00123456" />
+    </div>
+
+    <div class="flex-end mt-20">
+      <button class="btn btn-secondary" id="btn-cancelar">Cancelar</button>
+      <button class="btn btn-primary" id="btn-enviar">Enviar comprobante</button>
+    </div>
+  </div>
+
+  <!-- Paso 3: confirmación -->
+  <div class="card hidden" id="step-ok">
+    <div class="card-title">Comprobante recibido</div>
+    <div class="estado-resultado">
+      <p style="margin-bottom:16px;font-family:Georgia,serif;font-size:1rem;">Su comprobante fue recibido correctamente.</p>
+      <span class="badge badge-reportado">Reportado — pendiente de confirmación</span>
+      <p style="margin-top:20px;font-size:0.85rem;color:#555;">El área administrativa verificará el comprobante y confirmará el pago.</p>
+      <button class="btn btn-secondary mt-20" id="btn-nuevo">Reportar otro pago</button>
+    </div>
+  </div>
+
+</main>
+
+<script type="module" src="js/public.js"></script>
+</body>
+</html>
